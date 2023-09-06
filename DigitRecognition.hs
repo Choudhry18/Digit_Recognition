@@ -124,8 +124,9 @@ type Corpus = [(Digit, [PixelImage])]
 -- buildCorpus imgLbls 
 --           [(9, [ [[True, False]], [[False, True]] ]), (2, [[[False, False]]])]
 buildCorpus :: [(PixelImage, Digit)] -> Corpus
-buildCorpus imgLbls = 
-    undefined
+iterhelp :: Digit -> [(PixelImage, Digit)] -> [PixelImage]
+iterhelp digit pixels = [fst x | x <- pixels, snd x == digit]
+buildCorpus imgLbls = [(digit, iterhelp digit imgLbls) | digit <- allDigits, iterhelp digit imgLbls /= []]
 
 --
 --                                  Core Project 
