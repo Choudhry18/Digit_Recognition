@@ -12,7 +12,7 @@ import Debug.Trace
 --                                          Type Aliases
 -- These type aliases help to abstract our code. You will use them extensively in DigitRecognition.hs
 --
-type PixelImage = [[Bool]] 
+type PixelImage = [[Bool]]
 -- A pixel image is a two-dimensional list of booleans.
 -- False represents an empty pixel, and True a grey or black pixel. Each pixel image will be 28x28.
 type Feature = Int
@@ -22,7 +22,10 @@ type Digit = Integer
 -- Each image is of a specific digit, 0 through 9. To distinguish the labels or guesses from
 -- other numbers, we use a type alias.
 
-
+type Summary = [[(Int, Int)]]
+type DigitSummary = [(Digit, Summary)]
+type DigitCount = [(Digit, Int)]
+type Corpus = (DigitCount, DigitSummary)
 --                                      Primitive Functions
 -- These functions will be used in your implementation of the classifier. Be
 -- sure you understand how they are used, but you do not have to understand how they work.
@@ -34,8 +37,10 @@ type Digit = Integer
 --forbidden use of !!. This suggests that there should be a better way to handle and process
 --images. For the purposes of this project we will accept this.  We can take reassurance that
 --lists of length 28 are so short that better storage methods are probably unnecessary.
+
+
 hasFeature :: PixelImage -> Feature -> Bool
-hasFeature img ftr = 
+hasFeature img ftr =
     let dim = length img
         row = img !! (ftr `div` dim)
         pixel = row !! (ftr `mod` dim)
@@ -50,18 +55,23 @@ outOf :: Int -> Int -> Rational
 outOf a b =  (fromIntegral a) % (fromIntegral b)
 --Example:      2 `outOf` 10
 --              (length [1..3]) `outOf` (length [1..10])
-   
-
 --                                       Milestone One
 
 -- Create a list of all possible digit labels. 
+
+allFeatures :: [Feature]
+allFeatures = [0..783]
+
+
+featureGrid :: [[Feature]]
+featureGrid = chunksOf 28 allFeatures
+
 allDigits :: [Digit]
 allDigits = [0..9]
 
 
 -- Create a list of all possible features, starting at 0.
-allFeatures :: [Feature]
-allFeatures = [0..783]
+
 
 -- showPixelImage should take a PixelImage and turn it into a single string.
 -- Since we have lost gray colors (see readPixelImage in Framework.hs), our
@@ -91,14 +101,18 @@ showPixelImage img = unlines [bool_symbols x | x <- img]
 -- Example: lookupVal 'b' [('a', 8), ('b', 7), ('c', 9)]
 --          7
 lookupVal :: Eq a => a -> [(a, b)] -> b
-lookupVal key lst = head [snd n| n <- lst, fst n == key]
-   
+lookupVal key lst
+    | x == 1 = head y
+    | x < 1 = error "Digit not available"
+    | x > 1 = error "More than one digit"
+    where y =  [snd tup| tup <- lst, fst tup==key ]
+          x = length y
 --                                       Milestone Two
 
 -- A corpus is an association list between digits and the images that are labeled with that
 -- digit. By storing the information this way, we avoid the frequent computation of which images
 -- are labeled with which digit. 
-type Corpus = [(Digit, [PixelImage])]
+
 
 -- When we read in the files, we get a list of image-label tuples. It is far more efficient to
 -- group the images by their label as a Corpus. buildCorpus takes the list of tuples and
@@ -125,9 +139,30 @@ type Corpus = [(Digit, [PixelImage])]
 --           [(9, [ [[True, False]], [[False, True]] ]), (2, [[[False, False]]])]
 buildCorpus :: [(PixelImage, Digit)] -> Corpus
 iterhelp :: Digit -> [(PixelImage, Digit)] -> [PixelImage]
-iterhelp digit pixels = [fst x | x <- pixels, snd x == digit]
-buildCorpus imgLbls = [(digit, iterhelp digit imgLbls) | digit <- allDigits, iterhelp digit imgLbls /= []]
+helpDC :: [(Digit,[PixelImage])] -> DigitCount
+buildSummary :: [PixelImage] -> Int -> Summary
+helpSummary :: [PixelImage] -> Feature -> Int -> (Int,Int)
+itrFeatures :: [PixelImage] -> [Feature] -> Int -> [(Int,Int)]
+iterhelp digit pixels =  [fst x | x <- pixels, snd x == digit]
+helpDC oldcorpus = [(x,length y)|(x,y) <- oldcorpus]
+helpSummary imgs ftr total =
+    let s = length [k|k<-imgs, hasFeature k ftr]
+    in (s, total - s)
+itrFeatures imgs ftrs total = [helpSummary imgs i total| i<-ftrs]
+buildSummary imgs total =  [itrFeatures imgs i total|i<- featureGrid]
 
+
+buildCorpus imgLbls =
+    let groupimages = [(digit, y) | digit <- allDigits, let y = iterhelp digit imgLbls, y /= []]
+        dc = helpDC groupimages
+        ds = [(d,buildSummary x (length x))|d<-allDigits, let x = lookupVal d groupimages]
+    in (dc,ds)
+
+getFeature :: Summary -> Feature -> (Int, Int)
+getFeature summ ind =
+    let row = summ !! (ind `div` 28)
+        val = row !! (ind `mod` 28)
+    in val
 --
 --                                  Core Project 
 
@@ -138,22 +173,21 @@ buildCorpus imgLbls = [(digit, iterhelp digit imgLbls) | digit <- allDigits, ite
 -- Example: probOfDigit corpus 9
 --         2 % 3
 probOfDigit :: Corpus -> Digit -> Rational
-probOfDigit corpus digit = 
-    undefined
+probOfDigit corpus digit =
+    let total = sum [snd i| i <- fst corpus]
+    in outOf (lookupVal digit (fst corpus)) total
 
+-- Could there be dupplicates in imgs
 -- Given the list of images (imgs) labeled for a given digit Y, and a feature F (ftr),
 -- probOfFeature imgs ftr estimates the probability P(ftr=Black | Y). See the assignment page for
 -- details.
-probOfFeature :: [PixelImage] -> Feature -> Rational
-probOfFeature imgs ftr =
-    undefined
-
+probOfFeature :: Summary -> Feature -> Rational
+probOfFeature summ ftr = outOf (1+ fst (getFeature summ ftr)) (fst (getFeature summ ftr) + (snd (getFeature summ ftr))+2)
 -- Given the list of images (imgs) labeled for a given digit Y, and a feature F (ftr),
 -- probOfNoFeature imgs ftr estimates the probability P(ftr=White | Y). See the assignment page
 -- for details.
-probOfNoFeature :: [PixelImage] -> Feature -> Rational
-probOfNoFeature imgs ftr = 
-    undefined
+probOfNoFeature :: Summary -> Feature -> Rational
+probOfNoFeature summ ftr = 1 - probOfFeature summ ftr
 
 -- rankOfDigit should estimate the rank of a given digit for a given instance, as specified on
 -- the assignment page.
@@ -161,10 +195,14 @@ probOfNoFeature imgs ftr =
 -- You may find the (product) function helpful.
 -- I recommend you calculate the values for positive features (those that occur in newImg)
 -- and negative features (those that do not occur in newImg) separately.
-rankOfDigit :: Corpus -> Digit -> PixelImage -> Rational
-rankOfDigit corpus digit newImg = 
-    undefined
 
+rankOfDigit :: Corpus -> Digit -> PixelImage -> Rational
+rankOfDigit corpus digit newImg =
+    let x = probOfDigit corpus digit
+        w = lookupVal digit (snd corpus)
+        y = product [probOfFeature w i | i<- allFeatures, hasFeature newImg i]
+        z = product [probOfNoFeature w i | i<- allFeatures, not (hasFeature newImg i)]
+    in x*y*z
 -- classifyImage should return the most likely digit, based on the rank computed by rankOfDigit.
 -- You will need to use the maximum function.
 -- An important fact: if you have a tuple of two values, maximum returns based on the first
@@ -175,8 +213,9 @@ rankOfDigit corpus digit newImg =
 --   until smoothing is working correctly, so don't insert that check until then! 
 --   This is not worth any points!
 classifyImage :: Corpus -> PixelImage -> Digit
-classifyImage corpus newImg = 
-    undefined
+classifyImage corpus newImg =
+    let dict = [(rankOfDigit corpus i newImg, i)| i <- allDigits]
+    in snd (maximum dict)
 
 --                                  Optional Helpful Functions
 -- These functions are optional, but may be helpful with debugging. They are not worth any points.
@@ -184,7 +223,7 @@ classifyImage corpus newImg =
 -- valueOfRank takes a rank and turns it into a somewhat reasonable integer, suitable for
 -- printing. The ranks may be negative, that's perfectly fine.
 valueOfRank :: Rational -> Int
-valueOfRank r = 350 + ratLog r 
+valueOfRank r = 350 + ratLog r
     where numDigits x = length $ show x
           ratLog r = (numDigits $ numerator r) - (numDigits $ denominator r)
 
@@ -193,5 +232,5 @@ valueOfRank r = 350 + ratLog r
 -- return the list of digits and their ranks. Used by the --ranking flag.
 -- It is helpful, but not necessary, to sort the list.
 rankImage :: Corpus -> PixelImage -> [(Digit, Int)]
-rankImage corpus newImg = 
+rankImage corpus newImg =
     undefined
